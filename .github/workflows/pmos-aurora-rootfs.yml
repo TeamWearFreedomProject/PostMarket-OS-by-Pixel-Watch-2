@@ -1,0 +1,98 @@
+# Offline-only postmarketOS userspace experiment for Pixel Watch 2 (aurora).
+# This workflow NEVER flashes a watch, writes partitions or alters AsteroidOS.
+# No aurora kernel/boot images exist; the output, if built, is NOT bootable.
+name: pmOS aurora rootfs experiment
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/pmos-aurora-rootfs.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  rootfs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pmbootstrap requirements
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git python3 openssl coreutils procps tar xz-utils \
+            kpartx util-linux qemu-user-static binfmt-support
+          git clone --depth=1 https://gitlab.postmarketos.org/postmarketOS/pmbootstrap.git /tmp/pmbootstrap
+          mkdir -p "$HOME/.local/bin"
+          ln -s /tmp/pmbootstrap/pmbootstrap.py "$HOME/.local/bin/pmbootstrap"
+          "$HOME/.local/bin/pmbootstrap" --version
+
+      - name: Initialize host and select experimental aurora device
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          python3 -c 'print("\n" * 150)' > "$RUNNER_TEMP/pmbootstrap-answers"
+          timeout 720 pmbootstrap -y init < "$RUNNER_TEMP/pmbootstrap-answers"
+          PMAPORTS="$HOME/.local/var/pmbootstrap/cache_git/pmaports"
+          install -d "$PMAPORTS/device/testing/device-google-aurora"
+          cp -a port/device/testing/device-google-aurora/. "$PMAPORTS/device/testing/device-google-aurora/"
+          grep -qx 'deviceinfo_flash_method="none"' "$PMAPORTS/device/testing/device-google-aurora/deviceinfo"
+          pmbootstrap config device google-aurora
+          test "$(pmbootstrap config device)" = google-aurora
+          pmbootstrap deviceinfo_parse google-aurora
+          pmbootstrap status
+          df -h /
+
+      - name: Attempt AArch64 aurora userspace install without an image
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          mkdir -p out
+          # This builds the userspace in a CI chroot only. The chosen password
+          # is intentionally public and NEVER used on a real watch.
+          if ! timeout 3600 pmbootstrap -y --no-cross install \
+              --no-image --no-sshd --no-firewall --password=CI_PUBLIC_TEST_ONLY; then
+            echo "Experimental offline rootfs failed; investigate log." >> "$GITHUB_STEP_SUMMARY"
+            tail -n 220 "$HOME/.local/var/pmbootstrap/log.txt" || true
+            exit 1
+          fi
+          WORK="$(pmbootstrap config work)"
+          ROOTFS="$WORK/chroot_rootfs_google-aurora"
+          test -f "$ROOTFS/etc/os-release"
+          grep -E '^(NAME|VERSION|ID)=' "$ROOTFS/etc/os-release"
+          find "$ROOTFS" -xdev -type f -printf '%P\n' | sort > out/aurora-rootfs-file-manifest.txt
+          echo "Offline userspace generated under $ROOTFS" >> "$GITHUB_STEP_SUMMARY"
+          echo "There is NO kernel, boot image, or validated install method." >> "$GITHUB_STEP_SUMMARY"
+          # Small compressed offline archive of the chroot rootfs, no host mounts.
+          # Its filename explicitly says DO NOT FLASH.
+          sudo tar -C "$ROOTFS" --one-file-system \
+            --exclude='./dev' --exclude='./proc' --exclude='./sys' \
+            --exclude='./run' --exclude='./tmp' -cf - . \
+            | xz -T2 -1 > out/aurora-pmos-userspace-DO-NOT-FLASH.tar.xz
+          sha256sum out/aurora-pmos-userspace-DO-NOT-FLASH.tar.xz > out/SHA256SUMS
+          du -h out/*
+
+      - name: Save diagnostics
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p out
+          cp "$HOME/.local/var/pmbootstrap/log.txt" out/pmbootstrap.log 2>/dev/null || true
+          df -h / > out/runner-disk.txt
+          echo "### Safety" >> "$GITHUB_STEP_SUMMARY"
+          echo "No device connected, no flashing, and no changes to AsteroidOS." >> "$GITHUB_STEP_SUMMARY"
+          echo "All outputs are experimental, NOT usable boot/flash images." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload experiment artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aurora-pmos-userspace-EXPERIMENTAL-DO-NOT-FLASH
+          path: out/
+          retention-days: 7
+          if-no-files-found: error

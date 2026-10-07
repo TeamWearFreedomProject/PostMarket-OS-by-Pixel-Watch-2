@@ -88,7 +88,7 @@ jobs:
           if [ -d "$ROOTFS/etc/ssh" ]; then
             sudo find "$ROOTFS/etc/ssh" -type f -name 'ssh_host_*_key*' -delete
           fi
-          find "$ROOTFS" -xdev -type f -printf '%P\n' | sort > out/aurora-rootfs-file-manifest.txt
+          sudo find "$ROOTFS" -xdev -type f -printf '%P\n' | sort > out/aurora-rootfs-file-manifest.txt
           echo "Verified aarch64 userspace and installed aurora metadata package." >> "$GITHUB_STEP_SUMMARY"
           echo "No kernel, initramfs, boot image, or verified install procedure exists." >> "$GITHUB_STEP_SUMMARY"
           # Exclude host-mounted virtual filesystems and temporary directories.

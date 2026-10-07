@@ -1,0 +1,75 @@
+# First milestone: verify postmarketOS tooling on GitHub-hosted Linux.
+# This workflow never connects to or flashes the Pixel Watch 2.
+# A successful run proves pmbootstrap can run and produce an AArch64 test package,
+# NOT that aurora has a functional/bootable postmarketOS image.
+name: pmOS AArch64 build test
+
+on:
+  push:
+    paths:
+      - ".github/workflows/pmos-bootstrap.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pmbootstrap-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@v4
+
+      - name: Inspect runner resources
+        run: |
+          set -eu
+          uname -a
+          git --version
+          python3 --version
+          df -h /
+          free -h
+
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git python3 openssl coreutils procps tar xz-utils \
+            kpartx util-linux qemu-user-static binfmt-support
+
+      - name: Install current upstream pmbootstrap
+        run: |
+          set -eu
+          git clone --depth=1 https://gitlab.postmarketos.org/postmarketOS/pmbootstrap.git /tmp/pmbootstrap
+          mkdir -p "$HOME/.local/bin"
+          ln -s /tmp/pmbootstrap/pmbootstrap.py "$HOME/.local/bin/pmbootstrap"
+          "$HOME/.local/bin/pmbootstrap" --version
+
+      - name: Initialize a disposable pmbootstrap workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          # Feed blank answers for default settings. This first run is a
+          # generic pmbootstrap smoke test, not a Pixel Watch 2 device port.
+          python3 -c 'print("\n" * 150)' > "$RUNNER_TEMP/pmbootstrap-answers"
+          timeout 720 pmbootstrap -y init < "$RUNNER_TEMP/pmbootstrap-answers"
+          pmbootstrap status
+
+      - name: Build example Alpine package for AArch64
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          timeout 2100 pmbootstrap -y build --arch=aarch64 hello-world
+          echo "pmbootstrap AArch64 hello-world package build succeeded." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Runner disk usage / next steps
+        if: always()
+        run: |
+          echo "### Scope" >> "$GITHUB_STEP_SUMMARY"
+          echo "- CI-only tooling and AArch64 example package" >> "$GITHUB_STEP_SUMMARY"
+          echo "- No aurora device package or bootable image yet" >> "$GITHUB_STEP_SUMMARY"
+          echo "- No flash, partition changes, or watch communication" >> "$GITHUB_STEP_SUMMARY"
+          df -h / >> "$GITHUB_STEP_SUMMARY"

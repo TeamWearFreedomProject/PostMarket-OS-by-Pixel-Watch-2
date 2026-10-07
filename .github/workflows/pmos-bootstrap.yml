@@ -8,6 +8,7 @@ on:
   push:
     paths:
       - ".github/workflows/pmos-bootstrap.yml"
+      - "port/device/testing/device-google-aurora/**"
   workflow_dispatch:
 
 permissions:
@@ -69,11 +70,30 @@ jobs:
           fi
           echo "pmbootstrap AArch64 hello-world package build succeeded." >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Build experimental google-aurora metadata package
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          PMAPORTS="$HOME/.local/var/pmbootstrap/cache_git/pmaports"
+          TEST_PKG="$PMAPORTS/device/testing/device-google-aurora"
+          install -d "$TEST_PKG"
+          cp -a port/device/testing/device-google-aurora/. "$TEST_PKG/"
+          echo "Staged metadata-only package; flash_method is disabled:"
+          grep '^deviceinfo_flash_method=' "$TEST_PKG/deviceinfo"
+          if ! timeout 2100 pmbootstrap -y --no-cross build --arch=aarch64 device-google-aurora --force; then
+            echo '--- pmbootstrap aurora package build error log (last 200 lines) ---'
+            tail -n 200 "$HOME/.local/var/pmbootstrap/log.txt" || true
+            exit 1
+          fi
+          echo "Experimental device-google-aurora metadata APK built for AArch64." >> "$GITHUB_STEP_SUMMARY"
+          echo "IMPORTANT: No kernel package, rootfs or boot image has been produced." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Runner disk usage / next steps
         if: always()
         run: |
           echo "### Scope" >> "$GITHUB_STEP_SUMMARY"
           echo "- CI-only tooling and AArch64 example package" >> "$GITHUB_STEP_SUMMARY"
-          echo "- No aurora device package or bootable image yet" >> "$GITHUB_STEP_SUMMARY"
+          echo "- The aurora device package (when built) is metadata ONLY, not a bootable image" >> "$GITHUB_STEP_SUMMARY"
           echo "- No flash, partition changes, or watch communication" >> "$GITHUB_STEP_SUMMARY"
           df -h / >> "$GITHUB_STEP_SUMMARY"

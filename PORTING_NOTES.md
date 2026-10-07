@@ -90,9 +90,18 @@ Critical observations from those files:
 2. [x] Force-build a small **AArch64** package on Actions with QEMU `--no-cross`.
    Crossdirect on the Oct 7 runner failed to locate `liblto_plugin.so`; QEMU
    compilation succeeded.
-3. [ ] Validate/build the experimental `device-google-aurora` metadata package.
-4. [ ] Build an AArch64 userspace/rootfs as a standalone artifact with verified
-   package architecture.
+3. [x] Validate/build the experimental `device-google-aurora` metadata package.
+4. [x] Generate a **non-bootable AArch64 userspace archive** with verified
+   `aarch64` package architecture and the aurora device metadata.
+   [Passing CI #37564408562](https://github.com/TeamWearFreedomProject/PostMarket-OS-by-Pixel-Watch-2/actions/runs/37564408562)
+   saved `aurora-pmos-PARTIAL-userspace-DO-NOT-FLASH.tar.xz` (~524 MiB).
+   `pmbootstrap install --no-image` still invokes `mkinitfs`, which fails with
+   `only one kernel release/flavor is supported, found: []` because no aurora
+   kernel is packaged. CI explicitly recognizes **only that expected failure**
+   and exports the installed userspace; this is *not* a completed bootable
+   installation. Archive account passwords are locked before exporting.
+   The current upstream system identifies as `Nura`, the new name for
+   postmarketOS (https://nura.eco/blog/2026/09/27/nura-rename/).
 5. [ ] Port and package the pinned 5.15.144 kernel plus matching modules.
 6. [ ] Construct an *offline-only* v4 boot/initramfs proof of concept,
    examine partition headers and exact byte sizes, and keep everything

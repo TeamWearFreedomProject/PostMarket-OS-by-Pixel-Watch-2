@@ -7,10 +7,13 @@ I like Smartwatches.    uweeeeeeeeeeeeeeeeei
 
 - [x] GitHub Actions installs pmbootstrap and builds an AArch64 test package.
 - [x] Experimental `device-google-aurora` metadata package builds on Actions.
+- [x] AArch64 **userspace-only** archive generated (kernel / initramfs absent).
 - [ ] Kernel, matching modules, early initramfs, and safe rootfs boot process.
 - [ ] postmarketOS on-device boot test.
 
 [Passing CI: pmOS AArch64 build test #37563018624](https://github.com/TeamWearFreedomProject/PostMarket-OS-by-Pixel-Watch-2/actions/runs/37563018624)
+
+[Passing CI: standalone AArch64 userspace archive #37564408562](https://github.com/TeamWearFreedomProject/PostMarket-OS-by-Pixel-Watch-2/actions/runs/37564408562) — roughly 524 MiB compressed tar within an artifact ZIP. **Not flashable.** `pmbootstrap install --no-image` still calls `mkinitfs`, which stops because we have not packaged an aurora Linux kernel; CI allows only that exact expected failure, validates the installed aarch64 userspace, locks archive account passwords and saves the offline files.
 
 [Detailed porting notes and source credits](PORTING_NOTES.md)
 
@@ -31,3 +34,5 @@ integration as a reference, alongside the Halium-13 / Ubuntu Touch Google
 flashing protects it from an erase. Our experimental deviceinfo intentionally
 sets `deviceinfo_flash_method="none"`. No output from the current CI is a
 watch-ready boot or flash image.
+
+As of September 2026, postmarketOS has been renamed **Nura**; the current development rootfs identifies as `ID=nura`. The project and tooling still use many `postmarketos-*` package names. [Official announcement](https://nura.eco/blog/2026/09/27/nura-rename/).

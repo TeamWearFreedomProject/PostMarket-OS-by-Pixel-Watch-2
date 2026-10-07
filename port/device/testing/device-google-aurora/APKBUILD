@@ -1,0 +1,27 @@
+# Local early-port package. Metadata only: NOT a bootable port.
+# Device-specific kernel package, rootfs mounting and A/B-safe boot support TODO.
+pkgname=device-google-aurora
+pkgdesc="Google Pixel Watch 2 Wi-Fi (metadata-only experimental port)"
+pkgver=0.1
+pkgrel=0
+url="https://github.com/TeamWearFreedomProject/PostMarket-OS-by-Pixel-Watch-2"
+license="MIT"
+arch="aarch64"
+options="!check !archcheck"
+depends="postmarketos-base"
+makedepends="devicepkg-dev"
+source="deviceinfo"
+
+build() {
+    devicepkg_build "$startdir" "$pkgname"
+}
+
+package() {
+    devicepkg_package "$startdir" "$pkgname"
+}
+
+# Temporary for development: replace SKIP with sha512 checksum before publishing
+# a release or submitting to upstream pmaports.
+sha512sums="
+SKIP  deviceinfo
+"

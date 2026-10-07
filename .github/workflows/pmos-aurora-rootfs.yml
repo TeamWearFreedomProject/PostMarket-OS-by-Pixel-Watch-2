@@ -1,7 +1,7 @@
 # Offline-only postmarketOS userspace experiment for Pixel Watch 2 (aurora).
 # This workflow NEVER flashes a watch, writes partitions or alters AsteroidOS.
 # No aurora kernel/boot images exist; the output, if built, is NOT bootable.
-name: pmOS aurora rootfs experiment
+name: pmOS aurora userspace archive experiment
 
 on:
   workflow_dispatch:
@@ -52,28 +52,52 @@ jobs:
           set -euo pipefail
           export PATH="$HOME/.local/bin:$PATH"
           mkdir -p out
-          # This builds the userspace in a CI chroot only. The chosen password
-          # is intentionally public and NEVER used on a real watch.
-          if ! timeout 3600 pmbootstrap -y --no-cross install \
-              --no-image --no-sshd --no-firewall --password=CI_PUBLIC_TEST_ONLY; then
-            echo "Experimental offline rootfs failed; investigate log." >> "$GITHUB_STEP_SUMMARY"
-            tail -n 220 "$HOME/.local/var/pmbootstrap/log.txt" || true
-            exit 1
+          # Package and OS userspace install normally finish before mkinitfs.
+          # Since there is intentionally NO aurora Linux kernel package yet,
+          # mkinitfs fails with "kernel release/flavor ... found: []".
+          # Accept ONLY this exact expected error for a userspace-only archive.
+          # Never claim pmbootstrap install or a bootable OS succeeded.
+          set +e
+          timeout 3600 pmbootstrap -y --no-cross install \
+              --no-image --no-sshd --no-firewall --password=CI_PUBLIC_TEST_ONLY
+          RC=$?
+          set -e
+          LOG="$HOME/.local/var/pmbootstrap/log.txt"
+          if [ "$RC" -ne 0 ]; then
+            if [ "$RC" -eq 124 ] || ! grep -Fq 'only one kernel release/flavor is supported, found: []' "$LOG"; then
+              echo "Unexpected rootfs error (exit $RC); not producing userspace archive." >> "$GITHUB_STEP_SUMMARY"
+              tail -n 220 "$LOG" || true
+              exit 1
+            fi
+            echo "### Expected incomplete-install state" >> "$GITHUB_STEP_SUMMARY"
+            echo "mkinitfs cannot run until a matching aurora kernel package is installed." >> "$GITHUB_STEP_SUMMARY"
+            echo "Only the pre-mkinitfs userspace is being archived." >> "$GITHUB_STEP_SUMMARY"
           fi
           WORK="$(pmbootstrap config work)"
           ROOTFS="$WORK/chroot_rootfs_google-aurora"
-          test -f "$ROOTFS/etc/os-release"
+          test -s "$ROOTFS/etc/os-release"
+          test -s "$ROOTFS/lib/apk/db/installed"
+          grep -qx 'aarch64' "$ROOTFS/etc/apk/arch"
+          grep -qx 'P:device-google-aurora' "$ROOTFS/lib/apk/db/installed"
           grep -E '^(NAME|VERSION|ID)=' "$ROOTFS/etc/os-release"
+          # Archive is a public CI artifact, not a production installation.
+          # Lock all passwords so no published test password can be used later.
+          if [ -f "$ROOTFS/etc/shadow" ]; then
+            sudo sed -i -E 's/^([^:]+):[^:]*:/\1:!:/' "$ROOTFS/etc/shadow"
+          fi
+          if [ -d "$ROOTFS/etc/ssh" ]; then
+            sudo find "$ROOTFS/etc/ssh" -type f -name 'ssh_host_*_key*' -delete
+          fi
           find "$ROOTFS" -xdev -type f -printf '%P\n' | sort > out/aurora-rootfs-file-manifest.txt
-          echo "Offline userspace generated under $ROOTFS" >> "$GITHUB_STEP_SUMMARY"
-          echo "There is NO kernel, boot image, or validated install method." >> "$GITHUB_STEP_SUMMARY"
-          # Small compressed offline archive of the chroot rootfs, no host mounts.
-          # Its filename explicitly says DO NOT FLASH.
-          sudo tar -C "$ROOTFS" --one-file-system \
+          echo "Verified aarch64 userspace and installed aurora metadata package." >> "$GITHUB_STEP_SUMMARY"
+          echo "No kernel, initramfs, boot image, or verified install procedure exists." >> "$GITHUB_STEP_SUMMARY"
+          # Exclude host-mounted virtual filesystems and temporary directories.
+          sudo tar -C "$ROOTFS" --one-file-system --numeric-owner \
             --exclude='./dev' --exclude='./proc' --exclude='./sys' \
             --exclude='./run' --exclude='./tmp' -cf - . \
-            | xz -T2 -1 > out/aurora-pmos-userspace-DO-NOT-FLASH.tar.xz
-          sha256sum out/aurora-pmos-userspace-DO-NOT-FLASH.tar.xz > out/SHA256SUMS
+            | xz -T2 -1 > out/aurora-pmos-PARTIAL-userspace-DO-NOT-FLASH.tar.xz
+          sha256sum out/aurora-pmos-PARTIAL-userspace-DO-NOT-FLASH.tar.xz > out/SHA256SUMS
+          xz -t out/aurora-pmos-PARTIAL-userspace-DO-NOT-FLASH.tar.xz
           du -h out/*
 
       - name: Save diagnostics

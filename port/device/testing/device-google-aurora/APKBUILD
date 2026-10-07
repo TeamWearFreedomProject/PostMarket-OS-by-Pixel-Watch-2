@@ -20,8 +20,7 @@ package() {
     devicepkg_package "$startdir" "$pkgname"
 }
 
-# Temporary for development: replace SKIP with sha512 checksum before publishing
-# a release or submitting to upstream pmaports.
+# Exact SHA-512 of the staged deviceinfo; update when changing deviceinfo.
 sha512sums="
-SKIP  deviceinfo
+8e35b2b7ed4af04cd373c37bf31577f246bbe7fc5282ad45521f26973dd0a257ba6b629919d5732dc7ac5c3d004b2a19874fa307a38260b6e8461cf6695e22fd  deviceinfo
 "

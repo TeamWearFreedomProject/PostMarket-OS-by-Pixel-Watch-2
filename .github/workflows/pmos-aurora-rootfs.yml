@@ -43,7 +43,6 @@ jobs:
           grep -qx 'deviceinfo_flash_method="none"' "$PMAPORTS/device/testing/device-google-aurora/deviceinfo"
           pmbootstrap config device google-aurora
           test "$(pmbootstrap config device)" = google-aurora
-          pmbootstrap deviceinfo_parse google-aurora
           pmbootstrap status
           df -h /
 

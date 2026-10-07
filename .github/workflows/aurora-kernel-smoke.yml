@@ -1,6 +1,6 @@
 # Pixel Watch 2 (aurora) kernel compile experiment.
 # Build-only: does not create a flashable boot image and never talks to a watch.
-name: aurora Linux 5.15.144 compile test
+name: aurora Linux 5.15.144 + modules compile test
 
 on:
   workflow_dispatch:
@@ -115,7 +115,7 @@ jobs:
           set +e
           timeout 6000 make -j"$(nproc)" O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
             KCFLAGS='-Wno-error -Wno-implicit-function-declaration -Wno-error=implicit-function-declaration -Wno-error=implicit-int -Wno-error=int-conversion -Wno-error=incompatible-function-pointer-types -Wno-error=incompatible-pointer-types -Wno-error=strict-prototypes' \
-            HOSTCFLAGS=-Wno-error Image 2>&1 | tee "$GITHUB_WORKSPACE/out/kernel-build.log"
+            HOSTCFLAGS=-Wno-error Image modules 2>&1 | tee "$GITHUB_WORKSPACE/out/kernel-build.log"
           rc=${PIPESTATUS[0]}
           set -e
           if [ "$rc" -ne 0 ]; then
@@ -124,14 +124,33 @@ jobs:
             exit "$rc"
           fi
           test -s out/arch/arm64/boot/Image
+          KREL="$(make -s O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 kernelrelease)"
+          echo "$KREL" | tee "$GITHUB_WORKSPACE/out/kernel.release"
+          STAGE="$GITHUB_WORKSPACE/out/pmos-kernel-staging"
+          mkdir -p "$STAGE/boot" "$STAGE/usr/share/kernel/google-aurora"
+          cp out/arch/arm64/boot/Image "$STAGE/boot/vmlinuz-google-aurora"
+          cp kernel-config-aurora-known-good-base "$STAGE/boot/config-google-aurora"
+          printf '%s\n' "$KREL" > "$STAGE/usr/share/kernel/google-aurora/kernel.release"
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
+            modules_install INSTALL_MOD_PATH="$STAGE"
+          rm -f "$STAGE/lib/modules/$KREL/build" "$STAGE/lib/modules/$KREL/source"
+          test -d "$STAGE/lib/modules/$KREL"
+          MODCOUNT="$(find "$STAGE/lib/modules/$KREL" -type f -name '*.ko' | wc -l)"
+          echo "Installed in-tree module count: $MODCOUNT" | tee "$GITHUB_WORKSPACE/out/module-count.txt"
+          test "$MODCOUNT" -gt 0
+          cp out/Module.symvers "$GITHUB_WORKSPACE/out/Module.symvers"
           cp out/arch/arm64/boot/Image "$GITHUB_WORKSPACE/out/Image-aurora-UNPACKAGED-NOT-FLASHABLE"
           cp kernel-config-aurora-known-good-base "$GITHUB_WORKSPACE/out/config-aurora"
-          sha256sum "$GITHUB_WORKSPACE/out/Image-aurora-UNPACKAGED-NOT-FLASHABLE" \
+          tar -C "$STAGE" -cJf "$GITHUB_WORKSPACE/out/aurora-kernel-and-in-tree-modules-PMOS-STAGING-NOT-FLASHABLE.tar.xz" .
+          sha256sum \
+            "$GITHUB_WORKSPACE/out/Image-aurora-UNPACKAGED-NOT-FLASHABLE" \
+            "$GITHUB_WORKSPACE/out/aurora-kernel-and-in-tree-modules-PMOS-STAGING-NOT-FLASHABLE.tar.xz" \
             > "$GITHUB_WORKSPACE/out/SHA256SUMS"
           file "$GITHUB_WORKSPACE/out/Image-aurora-UNPACKAGED-NOT-FLASHABLE"
-          ls -lh "$GITHUB_WORKSPACE/out/Image-aurora-UNPACKAGED-NOT-FLASHABLE"
-          echo "Pinned aurora Linux Image compiled successfully." >> "$GITHUB_STEP_SUMMARY"
-          echo "This is a raw kernel only: NO ramdisk, NO Android boot header, NO AVB, NO matching vendor module bundle." >> "$GITHUB_STEP_SUMMARY"
+          ls -lh "$GITHUB_WORKSPACE/out/Image-aurora-UNPACKAGED-NOT-FLASHABLE" \
+            "$GITHUB_WORKSPACE/out/aurora-kernel-and-in-tree-modules-PMOS-STAGING-NOT-FLASHABLE.tar.xz"
+          echo "Pinned aurora Linux Image + in-tree modules compiled successfully." >> "$GITHUB_STEP_SUMMARY"
+          echo "Still NOT bootable: no PMOS kernel APK yet, no initramfs, no vendor/out-of-tree module bundle, no Android boot images." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Collect diagnostics
         if: always()

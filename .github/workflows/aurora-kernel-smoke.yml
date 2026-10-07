@@ -1,0 +1,155 @@
+# Pixel Watch 2 (aurora) kernel compile experiment.
+# Build-only: does not create a flashable boot image and never talks to a watch.
+name: aurora Linux 5.15.144 compile test
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/aurora-kernel-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  kernel:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      KERNEL_COMMIT: 063840c5aae117bf0faac8b34fba0e37c9f619f8
+      META_SMARTWATCH_COMMIT: 8c1dbee6c37cdd4ad97d083a59085abf7032ad42
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git ca-certificates clang lld llvm bc bison flex make \
+            libssl-dev libelf-dev rsync cpio kmod python3 patch xz-utils
+          clang --version
+          ld.lld --version
+          df -h /
+
+      - name: Fetch pinned UBports aurora kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init kernel
+          git -C kernel remote add origin \
+            https://gitlab.com/ubports/porting/community-ports/android13/google-eos/kernel-for-google-eos.git
+          git -C kernel fetch --depth=1 origin "$KERNEL_COMMIT"
+          git -C kernel checkout --detach FETCH_HEAD
+          test "$(git -C kernel rev-parse HEAD)" = "$KERNEL_COMMIT"
+          if [ -f kernel/.gitmodules ]; then
+            git -C kernel submodule update --init --recursive --depth=1
+          fi
+          echo "Kernel commit: $(git -C kernel rev-parse HEAD)"
+          du -sh kernel
+
+      - name: Fetch AsteroidOS aurora build integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init meta-smartwatch
+          git -C meta-smartwatch remote add origin https://github.com/AsteroidOS/meta-smartwatch.git
+          git -C meta-smartwatch fetch --depth=1 origin "$META_SMARTWATCH_COMMIT"
+          git -C meta-smartwatch checkout --detach FETCH_HEAD
+          test "$(git -C meta-smartwatch rev-parse HEAD)" = "$META_SMARTWATCH_COMMIT"
+
+      - name: Apply the patches used by AsteroidOS
+        shell: bash
+        run: |
+          set -euo pipefail
+          P="$GITHUB_WORKSPACE/meta-smartwatch/meta-aurora/recipes-kernel/linux/linux-aurora"
+          cd kernel
+          for patch_name in \
+            cmd-mod-file-func.patch \
+            cc-o-c-respfile.patch \
+            modfinal-cc-o-c-respfile.patch \
+            eud-secure-fail-nonfatal.patch \
+            rtc-pm8xxx-read-only.patch \
+            0001-video-fbdev-add-qcom-continuous-splash-framebuffer.patch
+          do
+            echo "Applying $patch_name"
+            git apply --check "$P/$patch_name"
+            git apply "$P/$patch_name"
+          done
+          git status --short
+
+      - name: Generate sw5100 kernel configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          P="$GITHUB_WORKSPACE/meta-smartwatch/meta-aurora/recipes-kernel/linux/linux-aurora"
+          cd kernel
+          mkdir -p out
+          test -f arch/arm64/configs/gki_defconfig
+          test -f arch/arm64/configs/vendor/monaco_GKI.config
+          scripts/kconfig/merge_config.sh -m -r -O out \
+            arch/arm64/configs/gki_defconfig \
+            arch/arm64/configs/vendor/monaco_GKI.config \
+            "$P/sw5100.fragment"
+          cat >> out/.config <<'EOF'
+          # CONFIG_DEBUG_INFO_BTF is not set
+          # CONFIG_DEBUG_INFO_BTF_MODULES is not set
+          # CONFIG_WERROR is not set
+          # CONFIG_LTO_CLANG_THIN is not set
+          # CONFIG_LTO_CLANG_FULL is not set
+          # CONFIG_LTO_CLANG is not set
+          CONFIG_LTO_NONE=y
+          # CONFIG_CFI_CLANG is not set
+          EOF
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
+          grep -E '^(CONFIG_LOCALVERSION|CONFIG_MODULES=|CONFIG_LTO_|CONFIG_CFI_|CONFIG_DRM=|CONFIG_FB=)' out/.config || true
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 kernelrelease
+          cp out/.config kernel-config-aurora-known-good-base
+
+      - name: Compile arm64 Image
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd kernel
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          set +e
+          timeout 6000 make -j"$(nproc)" O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
+            KCFLAGS='-Wno-error -Wno-implicit-function-declaration -Wno-error=implicit-function-declaration -Wno-error=implicit-int -Wno-error=int-conversion -Wno-error=incompatible-function-pointer-types -Wno-error=incompatible-pointer-types -Wno-error=strict-prototypes' \
+            HOSTCFLAGS=-Wno-error Image 2>&1 | tee "$GITHUB_WORKSPACE/out/kernel-build.log"
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            echo "Kernel Image compile failed with exit code $rc." >> "$GITHUB_STEP_SUMMARY"
+            tail -n 250 "$GITHUB_WORKSPACE/out/kernel-build.log"
+            exit "$rc"
+          fi
+          test -s out/arch/arm64/boot/Image
+          cp out/arch/arm64/boot/Image "$GITHUB_WORKSPACE/out/Image-aurora-UNPACKAGED-NOT-FLASHABLE"
+          cp kernel-config-aurora-known-good-base "$GITHUB_WORKSPACE/out/config-aurora"
+          sha256sum "$GITHUB_WORKSPACE/out/Image-aurora-UNPACKAGED-NOT-FLASHABLE" \
+            > "$GITHUB_WORKSPACE/out/SHA256SUMS"
+          file "$GITHUB_WORKSPACE/out/Image-aurora-UNPACKAGED-NOT-FLASHABLE"
+          ls -lh "$GITHUB_WORKSPACE/out/Image-aurora-UNPACKAGED-NOT-FLASHABLE"
+          echo "Pinned aurora Linux Image compiled successfully." >> "$GITHUB_STEP_SUMMARY"
+          echo "This is a raw kernel only: NO ramdisk, NO Android boot header, NO AVB, NO matching vendor module bundle." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Collect diagnostics
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p out
+          git -C kernel status --short > out/kernel-git-status.txt 2>/dev/null || true
+          git -C kernel rev-parse HEAD > out/kernel-source-commit.txt 2>/dev/null || true
+          git -C meta-smartwatch rev-parse HEAD > out/meta-smartwatch-commit.txt 2>/dev/null || true
+          df -h / > out/runner-disk.txt
+          echo "### Safety boundary" >> "$GITHUB_STEP_SUMMARY"
+          echo "No device access and no fastboot/ADB/flash commands are present." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload kernel experiment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aurora-linux-5.15.144-compile-experiment-NOT-FLASHABLE
+          path: out/
+          retention-days: 7
+          if-no-files-found: error

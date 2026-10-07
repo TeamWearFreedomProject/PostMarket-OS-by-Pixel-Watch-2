@@ -62,7 +62,7 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$PATH"
-          timeout 2100 pmbootstrap -y build --arch=aarch64 hello-world
+          timeout 2100 pmbootstrap -y build --arch=aarch64 hello-world --force
           echo "pmbootstrap AArch64 hello-world package build succeeded." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Runner disk usage / next steps

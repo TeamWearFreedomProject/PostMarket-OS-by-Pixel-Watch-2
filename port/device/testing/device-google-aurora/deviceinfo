@@ -1,0 +1,14 @@
+# Pixel Watch 2 Wi-Fi (aurora) -- EXPERIMENTAL port metadata.
+# Does NOT declare a working boot or flashing method.
+# https://postmarketos.org/deviceinfo
+# Use double quotes for deviceinfo values.
+deviceinfo_format_version="0"
+deviceinfo_name="Google Pixel Watch 2 (Wi-Fi)"
+deviceinfo_manufacturer="Google"
+deviceinfo_codename="google-aurora"
+deviceinfo_year="2023"
+deviceinfo_arch="aarch64"
+deviceinfo_chassis="watch"
+deviceinfo_external_storage="false"
+deviceinfo_flash_method="none"
+deviceinfo_drm="false"

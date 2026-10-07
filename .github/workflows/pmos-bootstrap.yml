@@ -62,7 +62,7 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$PATH"
-          if ! timeout 2100 pmbootstrap -y build --arch=aarch64 hello-world --force; then
+          if ! timeout 2100 pmbootstrap -y --no-cross build --arch=aarch64 hello-world --force; then
             echo '--- pmbootstrap internal build log (last 180 lines) ---'
             tail -n 180 "$HOME/.local/var/pmbootstrap/log.txt" || true
             exit 1
